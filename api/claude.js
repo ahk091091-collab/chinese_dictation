@@ -1,5 +1,8 @@
 const https = require('https');
 
+// 接收前端的 Anthropic 格式，內部轉換成 Gemini 格式，再轉回來
+// 前端完全不需要改動
+
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -15,40 +18,88 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
+    res.status(500).json({ error: 'GEMINI_API_KEY not configured' });
     return;
   }
 
   try {
-    const body = JSON.stringify(req.body);
+    const { messages, max_tokens } = req.body;
+
+    // Anthropic messages → Gemini contents
+    const contents = messages.map(msg => {
+      const parts = [];
+      if (typeof msg.content === 'string') {
+        parts.push({ text: msg.content });
+      } else if (Array.isArray(msg.content)) {
+        msg.content.forEach(part => {
+          if (part.type === 'text') {
+            parts.push({ text: part.text });
+          } else if (part.type === 'image') {
+            parts.push({
+              inline_data: {
+                mime_type: part.source.media_type,
+                data: part.source.data
+              }
+            });
+          }
+        });
+      }
+      return {
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts
+      };
+    });
+
+    const geminiBody = JSON.stringify({
+      contents,
+      generationConfig: {
+        maxOutputTokens: max_tokens || 1000
+      }
+    });
 
     const response = await new Promise((resolve, reject) => {
+      const path = `/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
       const options = {
-        hostname: 'api.anthropic.com',
-        path: '/v1/messages',
+        hostname: 'generativelanguage.googleapis.com',
+        path,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'Content-Length': Buffer.byteLength(body)
+          'Content-Length': Buffer.byteLength(geminiBody)
         }
       };
 
-      const proxyReq = https.request(options, (proxyRes) => {
+      const proxyReq = https.request(options, proxyRes => {
         let data = '';
         proxyRes.on('data', chunk => data += chunk);
         proxyRes.on('end', () => resolve({ status: proxyRes.statusCode, data }));
       });
 
       proxyReq.on('error', reject);
-      proxyReq.write(body);
+      proxyReq.write(geminiBody);
       proxyReq.end();
     });
 
-    res.status(response.status).json(JSON.parse(response.data));
+    const geminiData = JSON.parse(response.data);
+
+    if (response.status !== 200) {
+      res.status(response.status).json({
+        error: geminiData.error?.message || 'Gemini API error'
+      });
+      return;
+    }
+
+    // Gemini response → Anthropic format（前端看到的格式不變）
+    const text = geminiData.candidates?.[0]?.content?.parts
+      ?.map(p => p.text || '')
+      .join('') || '';
+
+    res.status(200).json({
+      content: [{ type: 'text', text }]
+    });
+
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
