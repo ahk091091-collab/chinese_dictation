@@ -1,4 +1,7 @@
 {
+  "functions": {
+    "api/claude.js": {}
+  },
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
