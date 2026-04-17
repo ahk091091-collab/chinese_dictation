@@ -1,0 +1,1285 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>國語聽寫練習系統</title>
+<script>
+// Load HanziWriter from unpkg with inline fallback
+(function() {
+  var s = document.createElement('script');
+  s.src = 'https://unpkg.com/hanzi-writer@3.5/dist/hanzi-writer.min.js';
+  s.onerror = function() {
+    // fallback: define a stub so the rest of the code doesn't crash
+    window.HanziWriter = {
+      create: function(el, char, opts) {
+        var node = typeof el === 'string' ? document.getElementById(el) : el;
+        if (node) {
+          node.style.cssText = 'width:80px;height:80px;display:flex;align-items:center;justify-content:center;font-size:44px;font-family:"Noto Serif TC",serif;color:#2c1810;border:1.5px solid #d4c4a8;border-radius:6px;background:white;box-sizing:border-box;';
+          node.textContent = char;
+        }
+        return { animateCharacter: function(cb) { if(cb && cb.onComplete) cb.onComplete(); } };
+      }
+    };
+    document.querySelectorAll('.stroke-cdn-status').forEach(function(el){ el.textContent='（離線模式：僅顯示字形）'; });
+  };
+  document.head.appendChild(s);
+})();
+</script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600;700;900&family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
+
+  :root {
+    --ink: #1a1008;
+    --paper: #faf6ef;
+    --paper2: #f3ede0;
+    --red: #c0392b;
+    --red-light: #f5c6c2;
+    --green: #27624a;
+    --green-light: #c2e0d0;
+    --gold: #b8860b;
+    --gold-light: #f5e6c0;
+    --border: #c8b89a;
+    --shadow: rgba(26,16,8,0.12);
+    --brush: #2c1810;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Noto Sans TC', sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    min-height: 100vh;
+    background-image:
+      repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(180,160,120,0.15) 39px, rgba(180,160,120,0.15) 40px),
+      repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(180,160,120,0.08) 39px, rgba(180,160,120,0.08) 40px);
+  }
+
+  /* ─── HEADER ─── */
+  .header {
+    background: var(--brush);
+    color: #f5e6c0;
+    padding: 18px 28px;
+    display: flex; align-items: center; gap: 16px;
+    box-shadow: 0 3px 12px var(--shadow);
+    position: relative; overflow: hidden;
+  }
+  .header::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(255,255,255,0.02) 8px, rgba(255,255,255,0.02) 16px);
+  }
+  .header-logo { font-family: 'Noto Serif TC', serif; font-size: 32px; font-weight: 900; color: #f5d78e; line-height: 1; }
+  .header-title { font-family: 'Noto Serif TC', serif; font-size: 22px; font-weight: 700; letter-spacing: 4px; }
+  .header-sub { font-size: 12px; opacity: 0.7; letter-spacing: 2px; margin-top: 3px; }
+  .header-right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+
+  /* ─── SCREENS ─── */
+  .screen { display: none; padding: 24px; max-width: 860px; margin: 0 auto; }
+  .screen.active { display: block; }
+
+  /* ─── SETUP SCREEN ─── */
+  .setup-card {
+    background: white;
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    margin-bottom: 20px;
+    box-shadow: 4px 4px 0 var(--border);
+  }
+  .setup-card h2 {
+    font-family: 'Noto Serif TC', serif;
+    font-size: 18px; font-weight: 700;
+    margin-bottom: 16px; padding-bottom: 10px;
+    border-bottom: 2px solid var(--paper2);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .btn-group { display: flex; flex-wrap: wrap; gap: 10px; }
+  .btn-sel {
+    padding: 10px 20px; border: 2px solid var(--border);
+    background: var(--paper); border-radius: 8px;
+    cursor: pointer; font-family: 'Noto Sans TC', sans-serif;
+    font-size: 15px; font-weight: 500; transition: all 0.15s;
+    color: var(--ink);
+  }
+  .btn-sel:hover { border-color: var(--gold); background: var(--gold-light); }
+  .btn-sel.active { border-color: var(--brush); background: var(--brush); color: #f5e6c0; }
+
+  .scope-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px; margin-top: 8px;
+  }
+  .scope-item {
+    padding: 10px; border: 2px solid var(--border);
+    background: var(--paper); border-radius: 8px;
+    cursor: pointer; text-align: center; font-size: 14px;
+    transition: all 0.15s; user-select: none;
+  }
+  .scope-item:hover { border-color: var(--gold); }
+  .scope-item.selected { border-color: var(--green); background: var(--green-light); }
+  .scope-item .unit-num { font-size: 11px; opacity: 0.6; }
+
+  .start-btn {
+    width: 100%; padding: 16px; background: var(--brush);
+    color: #f5e6c0; border: none; border-radius: 10px;
+    font-family: 'Noto Serif TC', serif; font-size: 20px;
+    font-weight: 700; letter-spacing: 4px; cursor: pointer;
+    box-shadow: 0 4px 0 #1a0f05; transition: all 0.15s;
+    margin-top: 10px;
+  }
+  .start-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 0 #1a0f05; }
+  .start-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #1a0f05; }
+  .start-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  /* ─── EXAM SCREEN ─── */
+  .exam-progress {
+    display: flex; align-items: center; gap: 14px;
+    margin-bottom: 20px; flex-wrap: wrap;
+  }
+  .progress-bar-wrap { flex: 1; background: var(--paper2); height: 10px; border-radius: 5px; min-width: 100px; overflow: hidden; }
+  .progress-bar { height: 100%; background: linear-gradient(90deg, var(--gold), var(--brush)); border-radius: 5px; transition: width 0.4s; }
+  .progress-text { font-size: 14px; color: var(--gold); font-weight: 700; white-space: nowrap; }
+
+  .question-card {
+    background: white; border: 2px solid var(--border);
+    border-radius: 12px; padding: 28px; margin-bottom: 20px;
+    box-shadow: 4px 4px 0 var(--border); position: relative;
+  }
+  .q-label {
+    position: absolute; top: -14px; left: 20px;
+    background: var(--brush); color: #f5d78e;
+    padding: 4px 14px; border-radius: 20px;
+    font-size: 13px; font-weight: 700; letter-spacing: 2px;
+  }
+  .q-hint {
+    font-size: 15px; color: #666; margin-bottom: 16px;
+    line-height: 1.8; background: var(--paper); padding: 12px 16px;
+    border-radius: 8px; border-left: 4px solid var(--gold);
+  }
+  .q-hint .blank { display: inline-block; min-width: 40px; border-bottom: 2px solid var(--brush); text-align: center; }
+
+  /* ─── HANDWRITING AREA ─── */
+  .handwrite-section { margin-top: 16px; }
+  .handwrite-label { font-size: 13px; color: #888; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+  .canvas-wrap {
+    border: 2px solid var(--border); border-radius: 10px;
+    background: #fffef9; position: relative; overflow: hidden;
+    box-shadow: inset 0 2px 6px rgba(0,0,0,0.05);
+    min-height: 200px;
+  }
+  .canvas-bg {
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px),
+      linear-gradient(rgba(200,184,154,0.3) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(200,184,154,0.3) 1px, transparent 1px);
+    background-size: 96px 96px, 96px 96px, 48px 48px, 48px 48px;
+    opacity: 0.5; pointer-events: none;
+  }
+  canvas.handwrite { display: block; cursor: crosshair; touch-action: none; }
+  .canvas-tools {
+    display: flex; gap: 8px; padding: 10px 12px;
+    background: var(--paper2); border-top: 1px solid var(--border);
+    flex-wrap: wrap; align-items: center;
+  }
+  .tool-btn {
+    padding: 6px 14px; border: 1.5px solid var(--border);
+    background: white; border-radius: 6px; cursor: pointer;
+    font-size: 13px; font-weight: 500; transition: all 0.12s;
+    font-family: 'Noto Sans TC', sans-serif;
+  }
+  .tool-btn:hover { background: var(--paper); border-color: var(--gold); }
+  .tool-btn.active { background: var(--brush); color: #f5e6c0; border-color: var(--brush); }
+  .stroke-size { display: flex; gap: 6px; align-items: center; }
+  .stroke-dot {
+    width: 24px; height: 24px; border-radius: 50%;
+    border: 2px solid var(--border); background: white;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: all 0.12s;
+  }
+  .stroke-dot:hover, .stroke-dot.active { border-color: var(--brush); background: var(--paper2); }
+  .stroke-dot .dot { background: var(--brush); border-radius: 50%; }
+
+  .answer-input-area {
+    margin-top: 14px;
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  }
+  .answer-display {
+    flex: 1; min-width: 200px; padding: 10px 16px;
+    border: 2px solid var(--border); border-radius: 8px;
+    font-size: 18px; font-family: 'Noto Serif TC', serif;
+    background: var(--paper); min-height: 44px;
+    letter-spacing: 4px; color: var(--brush);
+  }
+
+  /* Type input fallback */
+  .type-input {
+    flex: 1; padding: 10px 16px; border: 2px solid var(--border);
+    border-radius: 8px; font-size: 18px;
+    font-family: 'Noto Serif TC', serif; background: var(--paper);
+    color: var(--brush); letter-spacing: 4px; outline: none;
+  }
+  .type-input:focus { border-color: var(--gold); }
+
+  .nav-btns { display: flex; gap: 12px; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+  .btn-primary {
+    padding: 12px 28px; background: var(--brush); color: #f5e6c0;
+    border: none; border-radius: 8px; font-size: 16px;
+    cursor: pointer; font-family: 'Noto Serif TC', serif; font-weight: 700;
+    letter-spacing: 2px; box-shadow: 0 3px 0 #1a0f05; transition: all 0.12s;
+  }
+  .btn-primary:hover { transform: translateY(-1px); }
+  .btn-primary:active { transform: translateY(1px); box-shadow: 0 1px 0 #1a0f05; }
+  .btn-secondary {
+    padding: 12px 24px; background: white; color: var(--ink);
+    border: 2px solid var(--border); border-radius: 8px; font-size: 15px;
+    cursor: pointer; font-family: 'Noto Sans TC', sans-serif; transition: all 0.12s;
+  }
+  .btn-secondary:hover { border-color: var(--gold); background: var(--gold-light); }
+
+  .tts-btn {
+    padding: 10px 20px; background: var(--gold-light);
+    border: 2px solid var(--gold); border-radius: 8px;
+    font-size: 15px; cursor: pointer; transition: all 0.12s;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .tts-btn:hover { background: var(--gold); color: white; }
+  .tts-btn.playing { background: var(--gold); color: white; animation: pulse 0.8s infinite; }
+  @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.05)} }
+
+  /* ─── RESULT SCREEN ─── */
+  .result-summary {
+    background: var(--brush); color: #f5e6c0;
+    border-radius: 12px; padding: 28px; text-align: center;
+    margin-bottom: 20px;
+  }
+  .result-score { font-family: 'Noto Serif TC', serif; font-size: 64px; font-weight: 900; color: #f5d78e; }
+  .result-label { font-size: 18px; letter-spacing: 4px; opacity: 0.8; margin-top: 4px; }
+  .result-detail { margin-top: 12px; display: flex; justify-content: center; gap: 24px; }
+  .result-stat { text-align: center; }
+  .result-stat .num { font-size: 28px; font-weight: 700; }
+  .result-stat .lbl { font-size: 12px; opacity: 0.7; margin-top: 2px; }
+
+  .result-list { }
+  .result-item {
+    background: white; border: 2px solid var(--border);
+    border-radius: 10px; padding: 16px 20px; margin-bottom: 12px;
+    display: flex; align-items: flex-start; gap: 16px;
+    box-shadow: 2px 2px 0 var(--border);
+  }
+  .result-item.correct { border-color: #27624a; background: #f0faf4; }
+  .result-item.wrong { border-color: var(--red); background: #fdf0ef; }
+  .result-badge {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0; margin-top: 2px;
+  }
+  .result-item.correct .result-badge { background: var(--green-light); }
+  .result-item.wrong .result-badge { background: var(--red-light); }
+  .result-content { flex: 1; }
+  .result-word { font-family: 'Noto Serif TC', serif; font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .result-ans { font-size: 14px; color: #666; }
+  .result-ans span { font-weight: 700; }
+  .result-ans .your-ans { color: var(--red); }
+  .result-ans .correct-ans { color: var(--green); }
+
+  .ai-feedback {
+    background: linear-gradient(135deg, #1a1008 0%, #3d2a1a 100%);
+    border-radius: 10px; padding: 16px 20px; margin-top: 8px;
+    color: #f5e6c0; font-size: 14px; line-height: 1.7;
+  }
+  .ai-feedback .ai-label { font-size: 11px; letter-spacing: 2px; opacity: 0.6; margin-bottom: 6px; }
+
+  /* ─── PHOTO UPLOAD ─── */
+  .photo-section {
+    border: 2px dashed var(--border); border-radius: 10px;
+    padding: 20px; text-align: center; cursor: pointer;
+    transition: all 0.15s; background: var(--paper);
+    margin-top: 10px;
+  }
+  .photo-section:hover { border-color: var(--gold); background: var(--gold-light); }
+  .photo-section input { display: none; }
+  .photo-preview { max-width: 100%; border-radius: 8px; margin-top: 12px; display: none; }
+
+  /* ─── MODE TABS ─── */
+  .mode-tabs { display: flex; gap: 0; border: 2px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 16px; }
+  .mode-tab {
+    flex: 1; padding: 10px; text-align: center; cursor: pointer;
+    font-size: 14px; font-weight: 500; background: var(--paper);
+    border: none; transition: all 0.12s; font-family: 'Noto Sans TC', sans-serif;
+    color: var(--ink);
+  }
+  .mode-tab.active { background: var(--brush); color: #f5e6c0; }
+  .mode-tab:not(:last-child) { border-right: 1px solid var(--border); }
+
+  /* ─── WORD BANK DATA ─── */
+  .loading-overlay {
+    position: fixed; inset: 0; background: rgba(250,246,239,0.9);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 100; gap: 16px;
+  }
+  .loading-spinner {
+    width: 48px; height: 48px; border: 4px solid var(--border);
+    border-top-color: var(--brush); border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-family: 'Noto Serif TC', serif; font-size: 16px; letter-spacing: 3px; }
+
+  /* ─── RESPONSIVE ─── */
+  /* ─── STROKE ORDER ─── */
+  .stroke-section {
+    margin-top: 14px; padding: 16px;
+    background: var(--paper); border-radius: 10px;
+    border: 1.5px solid var(--border);
+  }
+  .stroke-section-title {
+    font-size: 13px; color: var(--gold); font-weight: 700;
+    letter-spacing: 2px; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .stroke-chars {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start;
+  }
+  .stroke-char-wrap {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .stroke-char-label {
+    font-size: 12px; color: #888; font-family: 'Noto Serif TC', serif;
+  }
+  .stroke-btn {
+    margin-top: 8px; padding: 5px 12px;
+    border: 1.5px solid var(--gold); border-radius: 6px;
+    background: var(--gold-light); font-size: 12px;
+    cursor: pointer; font-family: 'Noto Sans TC', sans-serif;
+    transition: all 0.12s;
+  }
+  .stroke-btn:hover { background: var(--gold); color: white; }
+
+  @media (max-width: 600px) {
+    body { background-image: none; }
+    .screen { padding: 14px; }
+    .setup-card { padding: 18px; }
+    .result-score { font-size: 48px; }
+  }
+
+  .badge-new {
+    display: inline-block; background: var(--red); color: white;
+    font-size: 10px; padding: 2px 6px; border-radius: 10px;
+    vertical-align: middle; margin-left: 4px; font-weight: 700;
+  }
+
+  .confetti-container { position: fixed; inset: 0; pointer-events: none; z-index: 200; overflow: hidden; }
+  .confetti-piece {
+    position: absolute; width: 10px; height: 10px;
+    animation: fall linear forwards;
+  }
+  @keyframes fall {
+    0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-logo">字</div>
+  <div>
+    <div class="header-title">國語聽寫練習系統</div>
+    <div class="header-sub">語詞・成語・AI批改</div>
+  </div>
+  <div class="header-right" id="headerRight"></div>
+</div>
+
+<!-- LOADING -->
+<div class="loading-overlay" id="loadingOverlay" style="display:none">
+  <div class="loading-spinner"></div>
+  <div class="loading-text" id="loadingText">AI 正在生成題目⋯</div>
+</div>
+
+<!-- SETUP SCREEN -->
+<div class="screen active" id="screenSetup">
+  <div class="setup-card">
+    <h2>📚 選擇版本</h2>
+    <div class="btn-group" id="versionGroup">
+      <button class="btn-sel active" data-val="翰林">翰林版</button>
+      <button class="btn-sel" data-val="康軒">康軒版</button>
+      <button class="btn-sel" data-val="南一">南一版</button>
+    </div>
+  </div>
+
+  <div class="setup-card">
+    <h2>🎓 選擇年級</h2>
+    <div class="btn-group" id="gradeGroup">
+      <button class="btn-sel" data-val="1">一年級</button>
+      <button class="btn-sel" data-val="2">二年級</button>
+      <button class="btn-sel active" data-val="3">三年級</button>
+      <button class="btn-sel" data-val="4">四年級</button>
+      <button class="btn-sel" data-val="5">五年級</button>
+      <button class="btn-sel" data-val="6">六年級</button>
+    </div>
+  </div>
+
+  <div class="setup-card">
+    <h2>📖 選擇學期</h2>
+    <div class="btn-group" id="semesterGroup">
+      <button class="btn-sel active" data-val="1">上學期</button>
+      <button class="btn-sel" data-val="2">下學期</button>
+    </div>
+  </div>
+
+  <div class="setup-card">
+    <h2>📝 考試範圍（選課）</h2>
+    <div class="scope-grid" id="scopeGrid">
+      <!-- Dynamic units -->
+    </div>
+    <div style="margin-top:12px; font-size:13px; color:#999">
+      已選 <span id="selectedCount" style="color:var(--gold);font-weight:700">0</span> 課
+    </div>
+  </div>
+
+  <div class="setup-card">
+    <h2>🖊 作答方式</h2>
+    <div class="btn-group" id="modeGroup">
+      <button class="btn-sel" data-val="type">⌨️ 鍵盤輸入</button>
+      <button class="btn-sel active" data-val="draw">✏️ 手寫作答</button>
+      <button class="btn-sel" data-val="photo">📷 拍照批改</button>
+    </div>
+    <div id="modeDesc" style="margin-top:10px;font-size:13px;color:#888;padding:10px;background:var(--paper2);border-radius:8px;">
+      用觸控或滑鼠在螢幕上手寫，AI 辨識批改。
+    </div>
+  </div>
+
+  <div class="setup-card">
+    <h2>⚙️ 題目設定</h2>
+    <div style="display:flex; gap:20px; flex-wrap:wrap; align-items:center;">
+      <label style="display:flex;align-items:center;gap:8px;font-size:15px;cursor:pointer">
+        題數：<select id="questionCount" style="padding:6px 10px;border:2px solid var(--border);border-radius:6px;font-size:15px;background:var(--paper);font-family:'Noto Sans TC',sans-serif">
+          <option value="5">5題</option>
+          <option value="10" selected>10題</option>
+          <option value="15">15題</option>
+          <option value="20">20題</option>
+        </select>
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:15px;cursor:pointer">
+        <input type="checkbox" id="chkIdiom" style="width:18px;height:18px"> 包含成語題
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:15px;cursor:pointer">
+        <input type="checkbox" id="chkHint" checked style="width:18px;height:18px"> 顯示例句提示
+      </label>
+    </div>
+  </div>
+
+  <button class="start-btn" id="startBtn" disabled onclick="startExam()">
+    ▶ 開始聽寫測驗
+  </button>
+</div>
+
+<!-- EXAM SCREEN -->
+<div class="screen" id="screenExam">
+  <div class="exam-progress">
+    <div style="font-size:14px;font-weight:700">第 <span id="qCurrent">1</span> / <span id="qTotal">10</span> 題</div>
+    <div class="progress-bar-wrap"><div class="progress-bar" id="progressBar" style="width:10%"></div></div>
+    <div class="progress-text" id="progressText">0%</div>
+    <button class="btn-secondary" onclick="endExam()" style="padding:6px 14px;font-size:13px">結束交卷</button>
+  </div>
+
+  <div class="question-card" id="questionCard">
+    <div class="q-label" id="qLabel">語詞</div>
+    <div class="q-hint" id="qHint"></div>
+
+    <div style="margin-bottom:10px">
+      <button class="tts-btn" id="ttsBtn" onclick="speakWord()">
+        🔊 播放題目
+      </button>
+    </div>
+
+    <!-- Mode: type -->
+    <div id="typeArea">
+      <div class="answer-input-area">
+        <input type="text" class="type-input" id="typeInput" placeholder="請輸入答案⋯" onkeydown="handleEnter(event)">
+        <button class="btn-primary" onclick="submitAnswer()">確認 →</button>
+      </div>
+    </div>
+
+    <!-- Mode: draw -->
+    <div id="drawArea" style="display:none">
+      <div class="handwrite-section">
+        <div class="handwrite-label">✏️ 請在下方手寫答案（每格寫一個字）<span style="margin-left:8px;color:var(--gold);font-size:12px">💡 寫完點「辨識送出」</span></div>
+        <div class="canvas-wrap">
+          <div class="canvas-bg"></div>
+          <canvas class="handwrite" id="handwriteCanvas" width="780" height="200"></canvas>
+          <div class="canvas-tools">
+            <button class="tool-btn" onclick="clearCanvas()">清除</button>
+            <div class="stroke-size">
+              <div class="stroke-dot active" onclick="setStroke(3,this)"><div class="dot" style="width:6px;height:6px"></div></div>
+              <div class="stroke-dot" onclick="setStroke(6,this)"><div class="dot" style="width:10px;height:10px"></div></div>
+              <div class="stroke-dot" onclick="setStroke(10,this)"><div class="dot" style="width:14px;height:14px"></div></div>
+            </div>
+            <button class="tool-btn active" id="penBtn" onclick="setTool('pen')">鋼筆</button>
+            <button class="tool-btn" id="eraserBtn" onclick="setTool('eraser')">橡皮擦</button>
+            <button class="btn-primary" style="margin-left:auto" onclick="submitDrawing()">辨識送出 →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mode: photo -->
+    <div id="photoArea" style="display:none">
+      <div class="photo-section" onclick="document.getElementById('photoInput').click()">
+        <div style="font-size:32px">📷</div>
+        <div style="margin-top:8px;font-size:15px;font-weight:500">點擊上傳手寫答案照片</div>
+        <div style="font-size:12px;color:#999;margin-top:4px">支援 JPG / PNG</div>
+        <input type="file" id="photoInput" accept="image/*" onchange="handlePhotoUpload(event)">
+        <img id="photoPreview" class="photo-preview">
+      </div>
+      <div style="text-align:right;margin-top:10px">
+        <button class="btn-primary" onclick="submitPhoto()" id="photoSubmitBtn" disabled>AI 批改 →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- RESULT SCREEN -->
+<div class="screen" id="screenResult">
+  <div class="result-summary" id="resultSummary"></div>
+  <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+    <button class="btn-primary" onclick="retryWrong()">🔁 錯題重練</button>
+    <button class="btn-secondary" onclick="goSetup()">🏠 返回設定</button>
+    <button class="btn-secondary" onclick="window.print()">🖨️ 列印成績</button>
+  </div>
+  <div id="resultList"></div>
+  <div class="confetti-container" id="confettiContainer"></div>
+</div>
+
+<script>
+// ────────────────────────────────────────────
+// STATE
+// ────────────────────────────────────────────
+const state = {
+  version: '翰林', grade: 3, semester: 1,
+  selectedUnits: new Set(),
+  mode: 'draw',
+  questions: [], current: 0,
+  answers: [], // {word, correct, userAns, isCorrect, aiFeedback}
+  strokeSize: 6, tool: 'pen',
+  drawing: false, lastX: 0, lastY: 0
+};
+
+// ────────────────────────────────────────────
+// WORD BANK (built-in seed data)
+// ────────────────────────────────────────────
+const WORD_BANK = {
+  '南一': {
+    4: {
+      1: {
+        1: { words: ['清晨','溫柔','微笑','快樂','美麗','認真','努力','智慧','勇敢','溫暖'], hint: ['清晨的陽光照進來', '媽媽說話很___', '他對我___', '今天很___', '花朵很___', '上課要___', '做事要___', '用___解決問題', '要___面對困難', '冬天裡的___陽光'], idioms: ['一石二鳥','三心二意'] },
+        2: { words: ['晴天','彩虹','雨水','雲朵','陽光','微風','季節','天空','星星','月亮'], hint: ['今天是___天', '雨後見___', '___滋潤大地', '天上有白___', '___照大地', '輕輕的___', '春夏秋冬四個___', '藍色的___', '夜晚的___', '圓圓的___'], idioms: ['五顏六色','萬紫千紅'] },
+        3: { words: ['蝴蝶','螞蟻','蜜蜂','青蛙','蜻蜓','金魚','兔子','松鼠','貓咪','小狗'], hint: ['___在花叢中飛', '___搬東西', '___採蜜', '___跳進水裡', '___停在草上', '水裡的___', '小___跳跳跳', '樹上的___', '___喵喵叫', '___汪汪叫'], idioms: ['雞飛狗跳','虎頭蛇尾'] }
+      },
+      2: {
+        4: {
+          title: '蝶之生',
+          words: ['蛹','蟻','蛻變','修煉','傳說','絕技','破曉','奮力','勤奮','散沙','翩翩','曬乾','移動','遷移','金殼','蛻殼'],
+          hint: [
+            '昆蟲成長過程中，由幼蟲變為成蟲之前所經歷的形態，叫做___',
+            '螞___：科昆蟲的總稱，種類很多',
+            '昆蟲蛻殼變化的過程，常引申為事物的轉變，叫做___',
+            '___：修身養性，使形體或本質獲得提升',
+            '___中，民間百姓敬仰這座宏偉嶙峋的山頂，住著一位修煉千年的智者',
+            '超越民間百姓，沒有人能及的技能，就是正邪兩方終要面對的___',
+            '天剛___，從遠方的地平線中，緩緩透出一絲金光',
+            '我在登山的途中，發現一隻蝴蝶正___地向前衝刺',
+            '___：鼓起勇氣，仿彿一身的力量都集到雙腿，往終點奔去',
+            '經過一番艱難的考驗之後，球隊成員已從一盤___，變成堅強又緊密的共同體',
+            '蝴蝶___隨著春風飛舞，表演翩翩起舞給觀賞，像舞蹈踏家一般，跳著自創的舞步',
+            '每天早上，我會把洗好的衣服放在有陽光或通風處，使其水分蒸發而變___',
+            '改變原來的位置或方向，叫做___',
+            '每次換座位時，老師都會要我們將桌椅抬離地面再___',
+            '蝴蝶的外殼，叫做___',
+            '昆蟲成蟲時，要___，才能即時發覺'
+          ],
+          idioms: ['溜之大吉','移風易俗','絡繹不絕','翩翩起舞'],
+          idiomHints: [
+            '金蟬脫身，比喻利用計謀逃脫，使人不能即時發覺，叫做___',
+            '形容改善不良的社會風氣和習俗，必須有實際行動，光喊口號是沒有用的，叫做___',
+            '火車站旁邊商店從清晨營業至深夜，人潮與車流總是___',
+            '蝴蝶隨著春風___，像舞蹈踏家一般，跳著自創的舞步'
+          ]
+        },
+        1: { words: ['山頂上','河流旁','田野間','森林裡','草地上','海邊的','湖泊旁','瀑布前','山谷中','平原上'], hint: ['爬到___看風景', '在___釣魚', '走過美麗的___', '在___迷路了', '躺在柔軟的___', '___撿貝殼', '在___散步', '站在___聽水聲', '回音在___迴盪', '一望無際的___'], idioms: ['山清水秀','碧草如茵'] }
+      }
+    }
+  },
+  '翰林': {
+    3: {
+      1: {
+        1: { words: ['清晨','溫柔','微笑','快樂','美麗','認真','努力','智慧','勇敢','溫暖'], hint: ['清晨的陽光照進來', '媽媽說話很___', '他對我___', '今天很___', '花朵很___', '上課要___', '做事要___', '用___解決問題', '要___面對困難', '冬天裡的___陽光'], idioms: ['一石二鳥','三心二意'] },
+        2: { words: ['晴天','彩虹','雨水','雲朵','陽光','微風','季節','天空','星星','月亮'], hint: ['今天是___天', '雨後見___', '___滋潤大地', '天上有白___', '___照大地', '輕輕的___', '春夏秋冬四個___', '藍色的___', '夜晚的___', '圓圓的___'], idioms: ['五顏六色','萬紫千紅'] },
+        3: { words: ['圖書館','故事書','鉛筆盒','黑板前','同學們','老師好','教室裡','課本上','放學後','作業本'], hint: ['我去___借書', '看一本___', '把鉛筆放進___', '站在___回答', '和___一起玩', '對老師說___', '坐在___上課', '翻開___看', '___去公園', '認真寫___'], idioms: ['專心致志','勤學苦讀'] },
+        4: { words: ['蝴蝶','螞蟻','蜜蜂','青蛙','蜻蜓','金魚','兔子','松鼠','貓咪','小狗'], hint: ['___在花叢中飛', '___搬東西', '___採蜜', '___跳進水裡', '___停在草上', '水裡的___', '小___跳跳跳', '樹上的___', '___喵喵叫', '___汪汪叫'], idioms: ['雞飛狗跳','虎頭蛇尾'] }
+      },
+      2: {
+        1: { words: ['山頂上','河流旁','田野間','森林裡','草地上','海邊的','湖泊旁','瀑布前','山谷中','平原上'], hint: ['爬到___看風景', '在___釣魚', '走過美麗的___', '在___迷路了', '躺在柔軟的___', '___撿貝殼', '在___散步', '站在___聽水聲', '回音在___迴盪', '一望無際的___'], idioms: ['山清水秀','碧草如茵'] },
+        2: { words: ['傳統節日','端午節','中秋節','元宵節','清明節','春節快樂','燈籠節','豐收節','團圓夜','祭祖日'], hint: ['___吃粽子', '___賞月吃月餅', '___猜燈謎', '___掃墓', '過___貼春聯', '說___', '提著___', '___感恩大自然', '一家人過___', '___表示感恩'], idioms: ['喜氣洋洋','歡天喜地'] }
+      }
+    },
+    4: {
+      1: {
+        1: { words: ['品格高尚','誠實守信','尊重他人','助人為樂','謙遜有禮','知恩圖報','克己奉公','忠心耿耿','捨己救人','大公無私'], hint: ['他___，值得信賴', '做人要___', '我們要___', '___是美德', '說話要___', '受到幫助要___', '做事要___', '對朋友要___', '___是英雄行為', '做領袖要___'], idioms: ['一諾千金','言而有信'] },
+        2: { words: ['科學實驗','觀察記錄','假設驗證','數據分析','結論報告','顯微鏡','實驗室','試管架','燒杯內','安全守則'], hint: ['進行___', '詳細的___', '提出___', '仔細的___', '寫出___', '用___觀察', '在___做實驗', '把試管放進___', '液體裝在___', '遵守___'], idioms: ['格物致知','實事求是'] }
+      }
+    },
+    5: {
+      1: {
+        1: { words: ['歷史文化','民間傳說','古代建築','文明發展','社會變遷','傳承精神','文物保存','民俗藝術','節慶活動','風土人情'], hint: ['了解___', '聽___故事', '參觀___', '___的過程', '社會的___', '___文化', '重要的___', '欣賞___', '參加___', '各地的___'], idioms: ['源遠流長','博大精深'] },
+        2: { words: ['環境保護','生態平衡','資源節約','綠色能源','永續發展','碳足跡小','生物多樣','氣候變遷','海洋污染','土地利用'], hint: ['重視___', '維持___', '___用水用電', '使用___', '推動___', '減少___', '保護___', '應對___', '減少___', '合理的___'], idioms: ['物盡其用','取之有道'] }
+      }
+    },
+    6: {
+      1: {
+        1: { words: ['人生哲理','處世之道','修身養性','格局遠大','志存高遠','知足常樂','自強不息','精益求精','厚積薄發','天道酬勤'], hint: ['領悟___', '學習___', '透過___', '胸懷要___', '要___', '學會___', '要___', '做事要___', '平時要___', '相信___'], idioms: ['知行合一','學而不厭'] }
+      }
+    }
+  }
+};
+
+// Fill missing entries with generated data
+function getWordData(version, grade, semester, unit) {
+  try {
+    const d = WORD_BANK[version]?.[grade]?.[semester]?.[unit];
+    if (d) return d;
+  } catch(e){}
+  // Fallback
+  return {
+    words: ['春天','夏天','秋天','冬天','花朵','樹木','陽光','白雲','微風','大地'],
+    hint: ['___百花開', '___很炎熱', '___楓葉紅', '___飄白雪', '___很美麗', '___長得高', '___照大地', '___在飄', '___輕輕吹', '腳下的___'],
+    idioms: ['一年四季','春暖花開']
+  };
+}
+
+// ────────────────────────────────────────────
+// STROKE ORDER (Hanzi Writer)
+// ────────────────────────────────────────────
+const strokeWriters = {};
+
+function initAllStrokes() {
+  function tryInit() {
+    if (typeof HanziWriter === 'undefined') {
+      // HanziWriter not loaded yet, retry
+      setTimeout(tryInit, 200);
+      return;
+    }
+    state.answers.forEach((a, i) => {
+      if (!strokeWriters[i]) strokeWriters[i] = [];
+      [...a.correct].forEach((ch, ci) => {
+        const elId = 'stroke-' + i + '-' + ci;
+        const el = document.getElementById(elId);
+        if (!el) return;
+        if (el.querySelector('svg') || el._hwInit) return; // already done
+        el._hwInit = true;
+        try {
+          const writer = HanziWriter.create(elId, ch, {
+            width: 80, height: 80, padding: 8,
+            showOutline: true,
+            strokeColor: '#2c1810',
+            outlineColor: '#d4c4a8',
+            strokeAnimationSpeed: 0.8,
+            delayBetweenStrokes: 400,
+            showCharacter: true,
+          });
+          strokeWriters[i][ci] = writer;
+        } catch(e) {
+          el.style.cssText = 'width:80px;height:80px;display:flex;align-items:center;justify-content:center;font-size:40px;font-family:"Noto Serif TC",serif;color:#2c1810;border:1.5px solid #d4c4a8;border-radius:6px;background:white;box-sizing:border-box;';
+          el.textContent = ch;
+          strokeWriters[i][ci] = { animateCharacter: function() {} };
+        }
+      });
+    });
+  }
+  // Wait for paint then init
+  requestAnimationFrame(() => setTimeout(tryInit, 50));
+}
+
+function animateStrokes(idx, word) {
+  const writers = strokeWriters[idx];
+  if (!writers) { alert('筆順資料載入中，請稍後再試'); return; }
+  let delay = 0;
+  [...word].forEach((ch, ci) => {
+    const w = writers[ci];
+    if (!w) return;
+    const charDelay = word.length > 3 ? 1000 : 1500;
+    setTimeout(() => {
+      w.animateCharacter();
+    }, delay);
+    delay += charDelay;
+  });
+}
+
+// ────────────────────────────────────────────
+// SETUP UI
+// ────────────────────────────────────────────
+function initSetup() {
+  // Btn groups
+  document.querySelectorAll('.btn-group').forEach(grp => {
+    grp.querySelectorAll('.btn-sel').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const single = !grp.id.includes('scope');
+        if (single) grp.querySelectorAll('.btn-sel').forEach(b => b.classList.remove('active'));
+        btn.classList.toggle('active');
+        updateState(grp.id, btn);
+      });
+    });
+  });
+  renderUnits();
+  updateStartBtn();
+}
+
+function updateState(groupId, btn) {
+  const val = btn.dataset.val;
+  if (groupId === 'versionGroup') { state.version = val; renderUnits(); }
+  if (groupId === 'gradeGroup') { state.grade = parseInt(val); renderUnits(); }
+  if (groupId === 'semesterGroup') { state.semester = parseInt(val); renderUnits(); }
+  if (groupId === 'modeGroup') {
+    state.mode = val;
+    const descs = { type:'使用鍵盤輸入答案，AI 即時比對批改。', draw:'用觸控或滑鼠在螢幕上手寫，AI 辨識批改。', photo:'紙上手寫完成後，拍照上傳，AI 辨識並批改。' };
+    document.getElementById('modeDesc').textContent = descs[val];
+  }
+  updateStartBtn();
+}
+
+function renderUnits() {
+  const grid = document.getElementById('scopeGrid');
+  state.selectedUnits.clear();
+  document.getElementById('selectedCount').textContent = '0';
+  // Generate 8 units
+  grid.innerHTML = '';
+  for (let u = 1; u <= 12; u++) {
+    const div = document.createElement('div');
+    div.className = 'scope-item';
+    div.dataset.unit = u;
+    div.innerHTML = `<div style="font-weight:700;font-size:16px">第 ${u} 課</div><div class="unit-num">${state.version} ${state.grade}年${state.semester === 1?'上':'下'}</div>`;
+    div.addEventListener('click', () => {
+      div.classList.toggle('selected');
+      if (div.classList.contains('selected')) state.selectedUnits.add(u);
+      else state.selectedUnits.delete(u);
+      document.getElementById('selectedCount').textContent = state.selectedUnits.size;
+      updateStartBtn();
+    });
+    grid.appendChild(div);
+  }
+  updateStartBtn();
+}
+
+function updateStartBtn() {
+  document.getElementById('startBtn').disabled = state.selectedUnits.size === 0;
+}
+
+// ────────────────────────────────────────────
+// GENERATE QUESTIONS via AI
+// ────────────────────────────────────────────
+async function startExam() {
+  showLoading('AI 正在根據範圍生成題目⋯');
+  const units = [...state.selectedUnits].sort((a,b)=>a-b);
+  const count = parseInt(document.getElementById('questionCount').value);
+  const includeIdiom = document.getElementById('chkIdiom').checked;
+  const showHint = document.getElementById('chkHint').checked;
+
+  // Collect seed words from selected units
+  let pool = [];
+  for (const u of units) {
+    const data = getWordData(state.version, state.grade, state.semester, u);
+    data.words.forEach((w,i) => pool.push({ word: w, hint: data.hint[i], unit: u, type: '語詞' }));
+    if (includeIdiom && data.idioms) {
+      data.idioms.forEach((id, i) => {
+        const h = (data.idiomHints && data.idiomHints[i]) ? data.idiomHints[i] : `請寫出成語「${id}」（${id.length}字）`;
+        pool.push({ word: id, hint: h, unit: u, type: '成語' });
+      });
+    }
+  }
+
+  // Ask AI to generate rich questions
+  const prompt = `你是一位台灣國小國語老師（${state.version}版，${state.grade}年級，第${state.semester}學期）。
+以下是考試範圍內的語詞和成語：
+${pool.map(p => `・${p.type}「${p.word}」`).join('\n')}
+
+請從中挑選 ${Math.min(count, pool.length)} 個詞語，為每個詞語產生一個測驗題，格式如下（嚴格JSON陣列，不要其他文字）：
+[
+  {
+    "word": "語詞",
+    "type": "語詞或成語",
+    "hint": "含空格的提示例句，用___代替答案",
+    "meaning": "簡單解釋（15字以內）",
+    "mnemonic": "記憶口訣或趣味說明（20字以內）"
+  }
+]
+注意：hint 必須是完整且自然的句子，難易度符合${state.grade}年級程度。`;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    const data = await res.json();
+    const text = data.content.map(c => c.text||'').join('');
+    const clean = text.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(clean);
+    state.questions = parsed.slice(0, count);
+  } catch(e) {
+    // Fallback: use pool directly
+    shuffle(pool);
+    state.questions = pool.slice(0, count).map(p => ({
+      word: p.word, type: p.type,
+      hint: showHint ? p.hint : `請寫出「${p.word}」這個${p.type}`,
+      meaning: '', mnemonic: ''
+    }));
+  }
+
+  if (!showHint) state.questions.forEach(q => q.hint = `請寫出「${' '.repeat(q.word.length * 2)}」（${q.word.length}字${q.type}）`);
+
+  state.current = 0;
+  state.answers = [];
+  hideLoading();
+  showScreen('screenExam');
+  renderQuestion();
+}
+
+// ────────────────────────────────────────────
+// EXAM LOGIC
+// ────────────────────────────────────────────
+function renderQuestion() {
+  const q = state.questions[state.current];
+  const total = state.questions.length;
+  const pct = Math.round((state.current / total) * 100);
+
+  document.getElementById('qCurrent').textContent = state.current + 1;
+  document.getElementById('qTotal').textContent = total;
+  document.getElementById('progressBar').style.width = pct + '%';
+  document.getElementById('progressText').textContent = pct + '%';
+  document.getElementById('qLabel').textContent = q.type;
+  document.getElementById('qHint').innerHTML = q.hint.replace(/___/g, '<span class="blank">___</span>');
+
+  // Show/hide mode areas
+  document.getElementById('typeArea').style.display = state.mode === 'type' ? '' : 'none';
+  document.getElementById('drawArea').style.display = state.mode === 'draw' ? '' : 'none';
+  document.getElementById('photoArea').style.display = state.mode === 'photo' ? '' : 'none';
+
+  if (state.mode === 'type') {
+    const inp = document.getElementById('typeInput');
+    inp.value = ''; inp.focus();
+  }
+  if (state.mode === 'draw') {
+    clearCanvas();
+    initCanvas();
+  }
+  if (state.mode === 'photo') {
+    document.getElementById('photoPreview').style.display = 'none';
+    document.getElementById('photoPreview').src = '';
+    document.getElementById('photoSubmitBtn').disabled = true;
+  }
+}
+
+function speakWord() {
+  const q = state.questions[state.current];
+  const btn = document.getElementById('ttsBtn');
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(q.word);
+    utter.lang = 'zh-TW'; utter.rate = 0.85; utter.pitch = 1;
+    utter.onstart = () => btn.classList.add('playing');
+    utter.onend = () => btn.classList.remove('playing');
+    // Speak twice
+    const utter2 = new SpeechSynthesisUtterance(q.word);
+    utter2.lang = 'zh-TW'; utter2.rate = 0.85;
+    utter.onend = () => { setTimeout(()=>window.speechSynthesis.speak(utter2), 600); btn.classList.remove('playing'); };
+    window.speechSynthesis.speak(utter);
+  }
+}
+
+function handleEnter(e) { if (e.key === 'Enter') submitAnswer(); }
+
+async function submitAnswer() {
+  const q = state.questions[state.current];
+  let userAns = '';
+  if (state.mode === 'type') userAns = document.getElementById('typeInput').value.trim();
+  else if (state.mode === 'draw') userAns = await recognizeCanvas();
+  
+  if (!userAns && state.mode !== 'photo') { alert('請填寫答案！'); return; }
+  await gradeAnswer(q, userAns);
+}
+
+async function gradeAnswer(q, userAns) {
+  showLoading('AI 批改中⋯');
+  const isCorrect = normalizeAns(userAns) === normalizeAns(q.word);
+  let aiFeedback = '';
+
+  if (!isCorrect) {
+    // Get AI feedback for wrong answers
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514', max_tokens: 1000,
+          messages: [{ role: 'user', content:
+            `學生作答：「${userAns || '（空白）'}」，正確答案：「${q.word}」（${q.type}）。
+請用20字以內給小學生友善的錯誤分析和記憶建議，要用繁體中文，語氣溫和鼓勵。` }]
+        })
+      });
+      const data = await res.json();
+      aiFeedback = data.content.map(c=>c.text||'').join('').trim();
+    } catch(e) {
+      aiFeedback = `正確答案是「${q.word}」，加油！多練習幾次就會記住了。`;
+    }
+  } else {
+    aiFeedback = '✨ 答對了！繼續保持！';
+  }
+
+  state.answers.push({ word: q.word, type: q.type, correct: q.word, userAns, isCorrect, aiFeedback, meaning: q.meaning });
+  hideLoading();
+  nextQuestion();
+}
+
+function nextQuestion() {
+  state.current++;
+  if (state.current >= state.questions.length) { showResults(); return; }
+  renderQuestion();
+}
+
+function endExam() {
+  if (!confirm('確定要提前交卷嗎？')) return;
+  // Fill remaining as blank
+  while (state.current < state.questions.length) {
+    const q = state.questions[state.current];
+    state.answers.push({ word: q.word, type: q.type, correct: q.word, userAns: '', isCorrect: false, aiFeedback: '未作答。', meaning: q.meaning });
+    state.current++;
+  }
+  showResults();
+}
+
+function normalizeAns(s) {
+  return (s||'').replace(/\s/g,'').replace(/[，。！？、]/g,'');
+}
+
+// ────────────────────────────────────────────
+// RESULTS
+// ────────────────────────────────────────────
+function showResults() {
+  showScreen('screenResult');
+  const correct = state.answers.filter(a=>a.isCorrect).length;
+  const total = state.answers.length;
+  const pct = Math.round(correct / total * 100);
+
+  let grade = '需要加油 💪';
+  if (pct >= 90) grade = '非常優秀 🏆'; 
+  else if (pct >= 80) grade = '表現良好 ⭐';
+  else if (pct >= 60) grade = '繼續努力 📚';
+
+  document.getElementById('resultSummary').innerHTML = `
+    <div class="result-score">${pct}<span style="font-size:32px">分</span></div>
+    <div class="result-label">${grade}</div>
+    <div class="result-detail">
+      <div class="result-stat"><div class="num" style="color:#f5d78e">${total}</div><div class="lbl">總題數</div></div>
+      <div class="result-stat"><div class="num" style="color:#a8e6c0">${correct}</div><div class="lbl">答對</div></div>
+      <div class="result-stat"><div class="num" style="color:#f5c6c2">${total-correct}</div><div class="lbl">答錯</div></div>
+    </div>
+  `;
+
+  const list = document.getElementById('resultList');
+  list.innerHTML = state.answers.map((a,i) => `
+    <div class="result-item ${a.isCorrect ? 'correct' : 'wrong'}">
+      <div class="result-badge">${a.isCorrect ? '✓' : '✗'}</div>
+      <div class="result-content">
+        <div class="result-word">${i+1}. ${a.correct} <span style="font-size:13px;color:#888;font-weight:400">（${a.type}）</span></div>
+        ${a.meaning ? `<div style="font-size:13px;color:#666;margin-bottom:6px">📖 ${a.meaning}</div>` : ''}
+        <div class="result-ans">
+          你的答案：<span class="your-ans">${a.userAns || '（未作答）'}</span>
+          ${!a.isCorrect ? `&nbsp;&nbsp;正確答案：<span class="correct-ans">${a.correct}</span>` : ''}
+        </div>
+        ${a.aiFeedback ? `<div class="ai-feedback"><div class="ai-label">✦ AI 批改建議</div>${a.aiFeedback}</div>` : ''}
+        <div class="stroke-section">
+          <div class="stroke-section-title">🖊 筆順動畫</div>
+          <div class="stroke-chars" id="strokes-${i}">
+            ${[...a.correct].map((ch, ci) => `
+              <div class="stroke-char-wrap">
+                <div id="stroke-${i}-${ci}" style="width:80px;height:80px;border:1.5px solid var(--border);border-radius:6px;background:white;display:block;"></div>
+                <div class="stroke-char-label">${ch}</div>
+              </div>
+            `).join('')}
+          </div>
+          <button class="stroke-btn" onclick="animateStrokes(${i}, '${a.correct}')">▶ 播放筆順</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+  // Auto-init stroke writers (static display)
+  // Double rAF inside initAllStrokes handles timing; call directly
+  initAllStrokes();
+
+  if (pct >= 80) showConfetti();
+}
+
+function retryWrong() {
+  const wrong = state.answers.filter(a => !a.isCorrect);
+  if (wrong.length === 0) { alert('恭喜！沒有錯題！'); return; }
+  state.questions = wrong.map(a => ({ word: a.word, type: a.type, hint: `請再次寫出「${a.correct}」`, meaning: a.meaning, mnemonic: '' }));
+  state.current = 0; state.answers = [];
+  showScreen('screenExam');
+  renderQuestion();
+}
+
+function goSetup() { showScreen('screenSetup'); }
+
+// ────────────────────────────────────────────
+// CANVAS HANDWRITING
+// ────────────────────────────────────────────
+function initCanvas() {
+  const canvas = document.getElementById('handwriteCanvas');
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = Math.max(320, rect.width - 4);
+  canvas.height = 200;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fffef9'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  // Draw character grid boxes
+  const boxSize = Math.min(96, Math.floor(canvas.width / 8));
+  ctx.strokeStyle = 'rgba(200,184,154,0.6)'; ctx.lineWidth = 1;
+  for (let x = 0; x <= canvas.width; x += boxSize) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+  }
+  for (let y = 0; y <= canvas.height; y += boxSize) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+  }
+  // Draw diagonal guides inside each box
+  ctx.strokeStyle = 'rgba(200,184,154,0.25)'; ctx.lineWidth = 0.5;
+  for (let x = 0; x < canvas.width; x += boxSize) {
+    for (let y = 0; y < canvas.height; y += boxSize) {
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x+boxSize, y+boxSize); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x+boxSize, y); ctx.lineTo(x, y+boxSize); ctx.stroke();
+      // Center cross
+      ctx.beginPath(); ctx.moveTo(x + boxSize/2, y); ctx.lineTo(x + boxSize/2, y+boxSize); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, y + boxSize/2); ctx.lineTo(x+boxSize, y+boxSize/2); ctx.stroke();
+    }
+  }
+  ctx.strokeStyle = state.tool === 'pen' ? '#1a1008' : '#fffef9';
+  ctx.lineWidth = state.strokeSize; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+  canvas.onmousedown = e => { state.drawing=true; [state.lastX, state.lastY] = getPos(e, canvas); };
+  canvas.onmousemove = e => { if(!state.drawing) return; draw(e, canvas); };
+  canvas.onmouseup = canvas.onmouseleave = () => state.drawing = false;
+  canvas.ontouchstart = e => { e.preventDefault(); state.drawing=true; const t=e.touches[0]; [state.lastX, state.lastY] = getPos(t, canvas); };
+  canvas.ontouchmove = e => { e.preventDefault(); if(!state.drawing) return; draw(e.touches[0], canvas); };
+  canvas.ontouchend = () => state.drawing = false;
+}
+
+function getPos(e, canvas) {
+  const r = canvas.getBoundingClientRect();
+  return [e.clientX - r.left, e.clientY - r.top];
+}
+
+function draw(e, canvas) {
+  const ctx = canvas.getContext('2d');
+  const [x, y] = getPos(e, canvas);
+  ctx.beginPath();
+  if (state.tool === 'eraser') { ctx.strokeStyle='#fffef9'; ctx.lineWidth = state.strokeSize * 4; }
+  else { ctx.strokeStyle='#1a1008'; ctx.lineWidth = state.strokeSize; }
+  ctx.moveTo(state.lastX, state.lastY);
+  ctx.lineTo(x, y); ctx.stroke();
+  [state.lastX, state.lastY] = [x, y];
+}
+
+function clearCanvas() {
+  const canvas = document.getElementById('handwriteCanvas');
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fffef9'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  // Redraw grid
+  const boxSize = Math.min(96, Math.floor(canvas.width / 8));
+  ctx.strokeStyle = 'rgba(200,184,154,0.6)'; ctx.lineWidth = 1;
+  for (let x = 0; x <= canvas.width; x += boxSize) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+  }
+  for (let y = 0; y <= canvas.height; y += boxSize) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(200,184,154,0.25)'; ctx.lineWidth = 0.5;
+  for (let x = 0; x < canvas.width; x += boxSize) {
+    for (let y = 0; y < canvas.height; y += boxSize) {
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x+boxSize, y+boxSize); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x+boxSize, y); ctx.lineTo(x, y+boxSize); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x + boxSize/2, y); ctx.lineTo(x + boxSize/2, y+boxSize); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, y + boxSize/2); ctx.lineTo(x+boxSize, y+boxSize/2); ctx.stroke();
+    }
+  }
+}
+
+function setStroke(size, el) {
+  state.strokeSize = size;
+  document.querySelectorAll('.stroke-dot').forEach(d => d.classList.remove('active'));
+  el.classList.add('active');
+}
+
+function setTool(t) {
+  state.tool = t;
+  document.getElementById('penBtn').classList.toggle('active', t==='pen');
+  document.getElementById('eraserBtn').classList.toggle('active', t==='eraser');
+}
+
+async function recognizeCanvas() {
+  const canvas = document.getElementById('handwriteCanvas');
+  const q = state.questions[state.current];
+
+  // Detect if canvas is blank
+  const ctx = canvas.getContext('2d');
+  const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  let hasDrawing = false;
+  for (let i = 0; i < pixels.length; i += 4) {
+    if (pixels[i] < 80 && pixels[i+1] < 80 && pixels[i+2] < 80 && pixels[i+3] > 100) {
+      hasDrawing = true; break;
+    }
+  }
+  if (!hasDrawing) {
+    hideLoading();
+    alert('畫布是空白的！請先手寫答案再送出。');
+    return null;
+  }
+
+  const imageData = canvas.toDataURL('image/png').split(',')[1];
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: imageData }},
+            { type: 'text', text: '這是一張有格線的手寫練習紙，學生在格子裡用黑色墨水寫了中文漢字。請從左到右逐格辨識每個漢字，只輸出漢字本身，不要輸出任何其他文字或標點。' }
+          ]
+        }]
+      })
+    });
+    if (!res.ok) {
+      hideLoading();
+      alert('辨識服務暫時無法使用（' + res.status + '），請改用鍵盤輸入。');
+      return null;
+    }
+    const data = await res.json();
+    const raw = data.content.map(c => c.text || '').join('').trim();
+    console.log('辨識結果:', raw);
+    return raw.replace(/[^\u4e00-\u9fff\u3400-\u4dbf]/g, '');
+  } catch(e) {
+    console.error('辨識錯誤:', e);
+    hideLoading();
+    alert('網路錯誤，請確認連線後再試，或改用鍵盤輸入。');
+    return null;
+  }
+}
+
+async function submitDrawing() {
+  showLoading('AI 正在辨識手寫文字⋯');
+  const userAns = await recognizeCanvas();
+  hideLoading();
+  if (userAns === null) return; // cancelled (blank or error)
+  const q = state.questions[state.current];
+  await gradeAnswer(q, userAns || '');
+}
+
+// ────────────────────────────────────────────
+// PHOTO MODE
+// ────────────────────────────────────────────
+function handlePhotoUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = document.getElementById('photoPreview');
+    img.src = ev.target.result; img.style.display = 'block';
+    document.getElementById('photoSubmitBtn').disabled = false;
+    document.getElementById('photoSubmitBtn')._base64 = ev.target.result.split(',')[1];
+  };
+  reader.readAsDataURL(file);
+}
+
+async function submitPhoto() {
+  const btn = document.getElementById('photoSubmitBtn');
+  const b64 = btn._base64;
+  if (!b64) return;
+  const q = state.questions[state.current];
+  showLoading('AI 正在辨識手寫並批改⋯');
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514', max_tokens: 1000,
+        messages: [{ role:'user', content:[
+          { type:'image', source:{ type:'base64', media_type:'image/jpeg', data: b64 }},
+          { type:'text', text:`這是學生手寫的答案。題目為：${q.hint}。正確答案是「${q.word}」。請辨識圖片中的手寫文字，只回覆辨識到的漢字，不要其他說明。` }
+        ]}]
+      })
+    });
+    const data = await res.json();
+    const userAns = data.content.map(c=>c.text||'').join('').trim().replace(/[^\u4e00-\u9fff]/g,'');
+    hideLoading();
+    await gradeAnswer(q, userAns);
+  } catch(e) { hideLoading(); alert('辨識失敗，請重試'); }
+}
+
+// ────────────────────────────────────────────
+// UTILS
+// ────────────────────────────────────────────
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function showLoading(msg) {
+  document.getElementById('loadingText').textContent = msg;
+  document.getElementById('loadingOverlay').style.display = 'flex';
+}
+function hideLoading() {
+  document.getElementById('loadingOverlay').style.display = 'none';
+}
+
+function shuffle(arr) {
+  for (let i = arr.length-1; i > 0; i--) {
+    const j = Math.floor(Math.random()*(i+1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function showConfetti() {
+  const c = document.getElementById('confettiContainer');
+  c.innerHTML = '';
+  const colors = ['#f5d78e','#c2e0d0','#f5c6c2','#b8860b','#27624a','#c0392b'];
+  for (let i = 0; i < 60; i++) {
+    const el = document.createElement('div');
+    el.className = 'confetti-piece';
+    el.style.cssText = `
+      left:${Math.random()*100}%;
+      background:${colors[Math.floor(Math.random()*colors.length)]};
+      width:${6+Math.random()*10}px; height:${6+Math.random()*10}px;
+      border-radius:${Math.random()>0.5?'50%':'2px'};
+      animation-duration:${1.5+Math.random()*2}s;
+      animation-delay:${Math.random()*0.8}s;
+    `;
+    c.appendChild(el);
+  }
+  setTimeout(()=>c.innerHTML='', 4000);
+}
+
+// ────────────────────────────────────────────
+// INIT
+// ────────────────────────────────────────────
+initSetup();
+</script>
+</body>
+</html>
