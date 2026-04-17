@@ -819,7 +819,7 @@ ${pool.map(p => `・${p.type}「${p.word}」`).join('\n')}
 注意：hint 必須是完整且自然的句子，難易度符合${state.grade}年級程度。`;
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('/api/claude', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -924,7 +924,7 @@ async function gradeAnswer(q, userAns) {
   if (!isCorrect) {
     // Get AI feedback for wrong answers
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const res = await fetch('/api/claude', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514', max_tokens: 1000,
@@ -1151,7 +1151,7 @@ async function recognizeCanvas() {
 
   const imageData = canvas.toDataURL('image/png').split(',')[1];
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('/api/claude', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1215,7 +1215,7 @@ async function submitPhoto() {
   const q = state.questions[state.current];
   showLoading('AI 正在辨識手寫並批改⋯');
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('/api/claude', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514', max_tokens: 1000,
