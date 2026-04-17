@@ -3,6 +3,35 @@ const https = require('https');
 // 接收前端的 Anthropic 格式，內部轉換成 Gemini 格式，再轉回來
 // 前端完全不需要改動
 
+function callGemini(body, apiKey) {
+  return new Promise((resolve, reject) => {
+    const path = `/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+    const options = {
+      hostname: 'generativelanguage.googleapis.com',
+      path,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body)
+      }
+    };
+
+    const proxyReq = https.request(options, proxyRes => {
+      let data = '';
+      proxyRes.on('data', chunk => data += chunk);
+      proxyRes.on('end', () => resolve({ status: proxyRes.statusCode, data }));
+    });
+
+    proxyReq.on('error', reject);
+    proxyReq.write(body);
+    proxyReq.end();
+  });
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -59,34 +88,18 @@ module.exports = async (req, res) => {
       }
     });
 
-    const response = await new Promise((resolve, reject) => {
-      const path = `/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-      const options = {
-        hostname: 'generativelanguage.googleapis.com',
-        path,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(geminiBody)
-        }
-      };
-
-      const proxyReq = https.request(options, proxyRes => {
-        let data = '';
-        proxyRes.on('data', chunk => data += chunk);
-        proxyRes.on('end', () => resolve({ status: proxyRes.statusCode, data }));
-      });
-
-      proxyReq.on('error', reject);
-      proxyReq.write(geminiBody);
-      proxyReq.end();
-    });
+    // 自動重試：429 時等 2 秒再試一次
+    let response = await callGemini(geminiBody, apiKey);
+    if (response.status === 429) {
+      await sleep(2000);
+      response = await callGemini(geminiBody, apiKey);
+    }
 
     const geminiData = JSON.parse(response.data);
 
     if (response.status !== 200) {
       res.status(response.status).json({
-        error: geminiData.error?.message || 'Gemini API error'
+        error: geminiData.error?.message || `Gemini API error (${response.status})`
       });
       return;
     }
