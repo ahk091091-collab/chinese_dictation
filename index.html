@@ -1168,7 +1168,8 @@ async function recognizeCanvas() {
     });
     if (!res.ok) {
       hideLoading();
-      alert('辨識服務暫時無法使用（' + res.status + '），請改用鍵盤輸入。');
+      const errData = await res.json().catch(() => ({}));
+      alert('辨識錯誤 ' + res.status + '：' + (errData.error || JSON.stringify(errData)));
       return null;
     }
     const data = await res.json();
