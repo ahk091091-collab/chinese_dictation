@@ -1149,7 +1149,7 @@ async function recognizeCanvas() {
     return null;
   }
 
-  const imageData = canvas.toDataURL('image/png').split(',')[1];
+  const imageData = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
   try {
     const res = await fetch('/api/claude', {
       method: 'POST',
@@ -1160,7 +1160,7 @@ async function recognizeCanvas() {
         messages: [{
           role: 'user',
           content: [
-            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: imageData }},
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imageData }},
             { type: 'text', text: '這是一張有格線的手寫練習紙，學生在格子裡用黑色墨水寫了中文漢字。請從左到右逐格辨識每個漢字，只輸出漢字本身，不要輸出任何其他文字或標點。' }
           ]
         }]
