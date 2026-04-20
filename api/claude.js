@@ -73,6 +73,10 @@ module.exports = async (req, res) => {
       generationConfig: { maxOutputTokens: max_tokens || 1000 }
     });
 
+    // Log request type for debugging
+    const hasImage = contents.some(c => c.parts.some(p => p.inlineData));
+    console.log('Request type:', hasImage ? 'image' : 'text', '| Body size:', geminiBody.length, 'bytes');
+
     // 429 時等 2 秒重試一次
     let response = await callGemini(geminiBody, apiKey);
     if (response.status === 429) {
