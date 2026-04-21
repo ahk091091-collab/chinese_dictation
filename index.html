@@ -566,8 +566,11 @@ const state = {
   questions: [], current: 0,
   answers: [], // {word, correct, userAns, isCorrect, aiFeedback}
   strokeSize: 6, tool: 'pen',
-  drawing: false, lastX: 0, lastY: 0
+  drawing: false, lastX: 0, lastY: 0,
+  busy: false
 };
+
+const API_PATH = '/api/claude';
 
 // ────────────────────────────────────────────
 // WORD BANK (built-in seed data)
@@ -782,6 +785,8 @@ function updateStartBtn() {
 // GENERATE QUESTIONS via AI
 // ────────────────────────────────────────────
 async function startExam() {
+  if (state.busy) return;
+  state.busy = true;
   showLoading('AI 正在根據範圍生成題目⋯');
   const units = [...state.selectedUnits].sort((a,b)=>a-b);
   const count = parseInt(document.getElementById('questionCount').value);
@@ -819,16 +824,11 @@ ${pool.map(p => `・${p.type}「${p.word}」`).join('\n')}
 注意：hint 必須是完整且自然的句子，難易度符合${state.grade}年級程度。`;
 
   try {
-    const res = await fetch('/api/claude', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        messages: [{ role: 'user', content: prompt }]
-      })
+    const data = await callAI({
+      model: 'gemini-2.5-flash',
+      max_tokens: 1000,
+      messages: [{ role: 'user', content: prompt }]
     });
-    const data = await res.json();
     const text = data.content.map(c => c.text||'').join('');
     const clean = text.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(clean);
@@ -850,6 +850,7 @@ ${pool.map(p => `・${p.type}「${p.word}」`).join('\n')}
   hideLoading();
   showScreen('screenExam');
   renderQuestion();
+  state.busy = false;
 }
 
 // ────────────────────────────────────────────
@@ -907,6 +908,7 @@ function speakWord() {
 function handleEnter(e) { if (e.key === 'Enter') submitAnswer(); }
 
 async function submitAnswer() {
+  if (state.busy) return;
   const q = state.questions[state.current];
   let userAns = '';
   if (state.mode === 'type') userAns = document.getElementById('typeInput').value.trim();
@@ -924,16 +926,13 @@ async function gradeAnswer(q, userAns) {
   if (!isCorrect) {
     // Get AI feedback for wrong answers
     try {
-      const res = await fetch('/api/claude', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514', max_tokens: 1000,
-          messages: [{ role: 'user', content:
-            `學生作答：「${userAns || '（空白）'}」，正確答案：「${q.word}」（${q.type}）。
+      const data = await callAI({
+        model: 'gemini-2.5-flash',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content:
+          `學生作答：「${userAns || '（空白）'}」，正確答案：「${q.word}」（${q.type}）。
 請用20字以內給小學生友善的錯誤分析和記憶建議，要用繁體中文，語氣溫和鼓勵。` }]
-        })
       });
-      const data = await res.json();
       aiFeedback = data.content.map(c=>c.text||'').join('').trim();
     } catch(e) {
       aiFeedback = `正確答案是「${q.word}」，加油！多練習幾次就會記住了。`;
@@ -1132,7 +1131,6 @@ function setTool(t) {
 
 async function recognizeCanvas() {
   const canvas = document.getElementById('handwriteCanvas');
-  const q = state.questions[state.current];
 
   // Detect if canvas is blank
   const ctx = canvas.getContext('2d');
@@ -1151,46 +1149,38 @@ async function recognizeCanvas() {
 
   const imageData = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
   try {
-    const res = await fetch('/api/claude', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imageData }},
-            { type: 'text', text: '這是一張有格線的手寫練習紙，學生在格子裡用黑色墨水寫了中文漢字。請從左到右逐格辨識每個漢字，只輸出漢字本身，不要輸出任何其他文字或標點。' }
-          ]
-        }]
-      })
+    const data = await callAI({
+      model: 'gemini-2.5-flash',
+      max_tokens: 1000,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imageData }},
+          { type: 'text', text: '這是一張有格線的手寫練習紙，學生在格子裡用黑色墨水寫了中文漢字。請從左到右逐格辨識每個漢字，只輸出漢字本身，不要輸出任何其他文字或標點。' }
+        ]
+      }]
     });
-    if (!res.ok) {
-      hideLoading();
-      const errData = await res.json().catch(() => ({}));
-      alert('辨識錯誤 ' + res.status + '：' + (errData.error || JSON.stringify(errData)));
-      return null;
-    }
-    const data = await res.json();
     const raw = data.content.map(c => c.text || '').join('').trim();
     console.log('辨識結果:', raw);
     return raw.replace(/[^\u4e00-\u9fff\u3400-\u4dbf]/g, '');
   } catch(e) {
     console.error('辨識錯誤:', e);
     hideLoading();
-    alert('網路錯誤，請確認連線後再試，或改用鍵盤輸入。');
+    alert(e.message || '網路錯誤，請確認連線後再試，或改用鍵盤輸入。');
     return null;
   }
 }
 
 async function submitDrawing() {
+  if (state.busy) return;
+  state.busy = true;
   showLoading('AI 正在辨識手寫文字⋯');
   const userAns = await recognizeCanvas();
   hideLoading();
-  if (userAns === null) return; // cancelled (blank or error)
+  if (userAns === null) { state.busy = false; return; } // cancelled (blank or error)
   const q = state.questions[state.current];
   await gradeAnswer(q, userAns || '');
+  state.busy = false;
 }
 
 // ────────────────────────────────────────────
@@ -1203,34 +1193,40 @@ function handlePhotoUpload(e) {
   reader.onload = ev => {
     const img = document.getElementById('photoPreview');
     img.src = ev.target.result; img.style.display = 'block';
-    document.getElementById('photoSubmitBtn').disabled = false;
-    document.getElementById('photoSubmitBtn')._base64 = ev.target.result.split(',')[1];
+    const btn = document.getElementById('photoSubmitBtn');
+    btn.disabled = false;
+    btn._base64 = ev.target.result.split(',')[1];
+    btn._mimeType = file.type || 'image/jpeg';
   };
   reader.readAsDataURL(file);
 }
 
 async function submitPhoto() {
+  if (state.busy) return;
+  state.busy = true;
   const btn = document.getElementById('photoSubmitBtn');
   const b64 = btn._base64;
-  if (!b64) return;
+  const mimeType = btn._mimeType || 'image/jpeg';
+  if (!b64) { state.busy = false; return; }
   const q = state.questions[state.current];
   showLoading('AI 正在辨識手寫並批改⋯');
   try {
-    const res = await fetch('/api/claude', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514', max_tokens: 1000,
-        messages: [{ role:'user', content:[
-          { type:'image', source:{ type:'base64', media_type:'image/jpeg', data: b64 }},
-          { type:'text', text:`這是學生手寫的答案。題目為：${q.hint}。正確答案是「${q.word}」。請辨識圖片中的手寫文字，只回覆辨識到的漢字，不要其他說明。` }
-        ]}]
-      })
+    const data = await callAI({
+      model: 'gemini-2.5-flash',
+      max_tokens: 1000,
+      messages: [{ role:'user', content:[
+        { type:'image', source:{ type:'base64', media_type:mimeType, data: b64 }},
+        { type:'text', text:`這是學生手寫的答案。題目為：${q.hint}。正確答案是「${q.word}」。請辨識圖片中的手寫文字，只回覆辨識到的漢字，不要其他說明。` }
+      ]}]
     });
-    const data = await res.json();
     const userAns = data.content.map(c=>c.text||'').join('').trim().replace(/[^\u4e00-\u9fff]/g,'');
     hideLoading();
     await gradeAnswer(q, userAns);
-  } catch(e) { hideLoading(); alert('辨識失敗，請重試'); }
+  } catch(e) {
+    hideLoading();
+    alert(e.message || '辨識失敗，請重試');
+  }
+  state.busy = false;
 }
 
 // ────────────────────────────────────────────
@@ -1247,6 +1243,37 @@ function showLoading(msg) {
 }
 function hideLoading() {
   document.getElementById('loadingOverlay').style.display = 'none';
+}
+
+async function callAI(payload) {
+  const res = await fetch(API_PATH, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  let data = {};
+  try {
+    data = await res.json();
+  } catch (e) {}
+
+  if (!res.ok) {
+    let msg = data.error || `AI request failed (${res.status})`;
+    if (res.status === 404) {
+      msg = '找不到 /api/claude。請確認目前是跑在 Vercel，或本機是用 `vercel dev` 啟動，不是單純靜態頁。';
+    } else if (res.status === 429) {
+      msg = 'AI 目前觸發速率限制，請先等 1 分鐘再試，並避免連續多次按送出。';
+    } else if (res.status === 400) {
+      msg = `AI 請求格式被拒絕：${msg}`;
+    }
+    throw new Error(msg);
+  }
+
+  if (!Array.isArray(data.content)) {
+    throw new Error('AI 回傳格式不正確');
+  }
+
+  return data;
 }
 
 function shuffle(arr) {

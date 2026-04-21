@@ -1,8 +1,8 @@
 const https = require('https');
 
-function callGemini(body, apiKey) {
+function callGemini(body, apiKey, model) {
   return new Promise((resolve, reject) => {
-    const path = `/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+    const path = `/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${apiKey}`;
     const options = {
       hostname: 'generativelanguage.googleapis.com',
       path,
@@ -25,6 +25,20 @@ function callGemini(body, apiKey) {
 
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
+}
+
+function parseBody(body) {
+  if (!body) return {};
+  if (typeof body === 'string') return JSON.parse(body);
+  if (Buffer.isBuffer(body)) return JSON.parse(body.toString('utf8'));
+  return body;
+}
+
+function getGeminiModel(requestedModel) {
+  if (typeof requestedModel === 'string' && /^gemini-/.test(requestedModel)) {
+    return requestedModel;
+  }
+  return process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 }
 
 // Anthropic content → Gemini parts
@@ -61,12 +75,24 @@ module.exports = async (req, res) => {
   if (!apiKey) { res.status(500).json({ error: 'GEMINI_API_KEY not configured' }); return; }
 
   try {
-    const { messages, max_tokens } = req.body;
+    const body = parseBody(req.body);
+    const { messages, max_tokens } = body;
+    const model = getGeminiModel(body.model);
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      res.status(400).json({ error: 'Request must include a non-empty messages array' });
+      return;
+    }
 
     const contents = (messages || []).map(msg => ({
       role: msg.role === 'assistant' ? 'model' : 'user',
       parts: toParts(msg.content)
-    }));
+    })).filter(msg => msg.parts.length > 0);
+
+    if (contents.length === 0) {
+      res.status(400).json({ error: 'Request messages did not contain any supported text or image parts' });
+      return;
+    }
 
     const geminiBody = JSON.stringify({
       contents,
@@ -75,16 +101,23 @@ module.exports = async (req, res) => {
 
     // Log request type for debugging
     const hasImage = contents.some(c => c.parts.some(p => p.inlineData));
-    console.log('Request type:', hasImage ? 'image' : 'text', '| Body size:', geminiBody.length, 'bytes');
+    console.log('Request type:', hasImage ? 'image' : 'text', '| Model:', model, '| Body size:', geminiBody.length, 'bytes');
 
-    // 429 時等 2 秒重試一次
-    let response = await callGemini(geminiBody, apiKey);
-    if (response.status === 429) {
-      await sleep(2000);
-      response = await callGemini(geminiBody, apiKey);
+    // 429 時做有限次退避重試，避免前端立刻重送把配額打滿
+    let response = await callGemini(geminiBody, apiKey, model);
+    for (let attempt = 0; attempt < 2 && response.status === 429; attempt++) {
+      await sleep(2000 * (attempt + 1));
+      response = await callGemini(geminiBody, apiKey, model);
     }
 
-    const geminiData = JSON.parse(response.data);
+    let geminiData = {};
+    try {
+      geminiData = JSON.parse(response.data);
+    } catch (parseErr) {
+      console.error('Gemini returned non-JSON response', response.status, response.data);
+      res.status(502).json({ error: 'Gemini returned an unreadable response' });
+      return;
+    }
 
     if (response.status !== 200) {
       console.error('Gemini error', response.status, response.data);
